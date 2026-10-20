@@ -1,17 +1,21 @@
 skip_local_validator = true
 
 [toolchain]
+anchor_version = "1.2.1"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-pre_req_vault = "DBoobRVqT7PaAhq8obqo95723CHyWvcCLRUKvQ5wYWE4"
+pre_req_vault = "Cdew9Y89YgSVS184JFdo38ouTQbaji8rkzUAUUjdKZGs"
+
+[programs.devnet]
+pre_req_vault = "Cdew9Y89YgSVS184JFdo38ouTQbaji8rkzUAUUjdKZGs"
 
 [provider]
 cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+wallet = "~/workspace/solana-ai/sol/devnetA"
 
 [scripts]
 test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
