@@ -1,0 +1,19 @@
+[package]
+name = "vault-client"
+version = "0.1.0"
+edition = "2021"
+description = "Hand-rolled Rust client for the pre-req vault program (devnet)"
+
+# Standalone workspace: this crate is deliberately NOT a member of the Anchor
+# workspace one directory up, so its dependency tree (solana-sdk) stays separate
+# from the on-chain program's.
+[workspace]
+
+[dependencies]
+solana-sdk = "3"
+solana-client = "3"
+solana-commitment-config = "3"
+solana-system-interface = "3"
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
