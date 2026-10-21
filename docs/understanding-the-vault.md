@@ -25,9 +25,18 @@ Everything in this document corresponds to real, live state you can inspect:
 
 | account | seeds | derived address | state now |
 |---|---|---|---|
-| `vault_state` | `["state", user]` under this program | `HSdoaEQ8DVgVXd9es4rzEq5rFqNquHabHmmcdT3oAQGr` | **deleted** by `close` (null — as designed) |
-| `vault` | `["vault", vault_state]` under this program | `58fRZWudVkQvjJfgCFLxhUwauYmV3pQLNEU2hjokji2R` | **deleted** (drained to 0 lamports) |
+| `vault_state` | `["state", user]` under this program | `HSdoaEQ8DVgVXd9es4rzEq5rFqNquHabHmmcdT3oAQGr` | **exists again** — deleted by `close`, then re-`initialize`d at the identical address ([view](https://explorer.solana.com/address/HSdoaEQ8DVgVXd9es4rzEq5rFqNquHabHmmcdT3oAQGr?cluster=devnet)) |
+| `vault` | `["vault", vault_state]` under this program | `58fRZWudVkQvjJfgCFLxhUwauYmV3pQLNEU2hjokji2R` | **exists again** — re-initialized and holding 0.1 SOL (left open on purpose) |
 | `application_account` | `["prereqs", user]` under the **registry** | `2D44dQv5d6RwuH3pb5fFVqsg6W8fVPEwTJLYzmmZ8vmj` | **exists** — created by the CPI in `withdraw` ([view](https://explorer.solana.com/address/2D44dQv5d6RwuH3pb5fFVqsg6W8fVPEwTJLYzmmZ8vmj?cluster=devnet)) |
+
+### Second wallet (devnetB `CKyoBEBwnvkat36UBYmZBkisNrspkoKGjqUT6C2vkavg`) — initialized only, no deposit
+
+| account | derived address | state now |
+|---|---|---|
+| `vault_state` | `7eSK9k7bqjxvA6x2FFLPZs4KQJynkE1ifsWxvedTzgD8` | **exists** — 10 bytes, bumps 255/251 |
+| `vault` | `9x5T4eF4VH6LWVZPF3MrrkvYRNnxKeXnyL97WyWHg2UA` | **no account** — `AccountNotFound`, as designed |
+
+Different wallet → different addresses, even though every PDA comes out of the same program and the same seed recipe. That's the one-vault-per-wallet rule in action.
 
 ### The lifecycle transactions (2026-10-20, all confirmed)
 
@@ -38,6 +47,9 @@ Everything in this document corresponds to real, live state you can inspect:
 | `deposit` (1 SOL) | `4Ut7WaBf…ddivhb` | [view](https://explorer.solana.com/tx/4Ut7WaBfNmG5WHaq2iuY1e5MQDQusD7H6YqKESmbq1abL5VqW3BkGhuVRkYHkUgu4wX75mA3KkYrmrTcapddivhb?cluster=devnet) |
 | `withdraw` (0.5 SOL) **+ registration CPI** | `3mHuxxQe…brzugc` | [view](https://explorer.solana.com/tx/3mHuxxQeGBXmevbFXFKgdPX39pgCf3gf5KDVAy4xpAwkVokQng8D7eXSqDXyFLZ5UAg97urcrY7zwfLQbwbrzugc?cluster=devnet) |
 | `close` | `7GWUgfGU…HxmQq` | [view](https://explorer.solana.com/tx/7GWUgfGU188VDGRb4a9DvBHwV64C2ofRP64gNCdFuU18FA7EARKJvi4V8DD98hLq5hdptTqiSA8wUo2fDkHxmQq?cluster=devnet) |
+| re-`initialize` (wallet A) | `2UUDJX9r…JG9ASC` | [view](https://explorer.solana.com/tx/2UUDJX9rp3ocQpYn6CqRw35e7p1AXBEBBAdpWkmwC8ZnvoSiEwVCYUFGseUEdCmWNn1amm64WSjrLBPQhvJG9ASC?cluster=devnet) |
+| `deposit` 0.1 SOL (wallet A, left open) | `4w7BvUCs…vHvjW3` | [view](https://explorer.solana.com/tx/4w7BvUCsvFXYmzohHswS6k2yC9mFFfMTMTpmFcMXSxxRVcG2FmgXnTZjBmraaf19a3zqrF5W6cWEZYH3mowHvjW3?cluster=devnet) |
+| `initialize` (wallet B, no deposit) | `4UdJZktJ…tDExhM` | [view](https://explorer.solana.com/tx/4UdJZktJ3azom9g2imjHBbD3y54DgfJcfvSPkvfVoanusRa37zFWH4PrdNvmG6uJ4DAb6eZUeZVBBLD2ostDExhM?cluster=devnet) |
 
 ### The decoded registration account (fetched from devnet after the test)
 
@@ -119,6 +131,26 @@ Design split: **programs own information; the system program owns money.** The v
 
 Note the address/account distinction proven live in this session: all three PDA addresses above were computable before anything existed (we derived them off-chain with `findProgramAddressSync`), and devnet answered `AccountNotFound` until transactions materialized them.
 
+### Two ways an account appears on the ledger (decoded from the live txs)
+
+The system program's `transfer` checks only the sender (`system_processor.rs: transfer_verified` — `from` must carry no data and hold enough lamports). It never looks at the destination: no signature, no existence check. So a plain transfer **materializes an account** at any address — someone-writable form: owner = system program, 0 bytes data. The 0.1 SOL redeposit into wallet A's vault ran exactly that:
+
+```json
+{"type":"transfer","info":{"source":"DoLVFCsfpq…","destination":"58fRZWudVk…","lamports":100000000}}
+```
+
+Giving an account **data or a different owner** is different: `allocate` and `assign` both require *the address itself to sign*. A PDA can't have a private key, so the only possible signer is the program supplying the seeds — exactly what `invoke_signed` is for. Wallet B's `initialize` ran the full `createAccount` (fund + allocate + assign in one shot):
+
+```json
+{"type":"createAccount","info":{"source":"CKyoBEBw…","newAccount":"7eSK9k7b…",
+                                "lamports":701040,"space":10,"owner":"Cdew9Y89…"}}
+```
+
+Two consequences worth remembering:
+
+- **`createAccount` refuses a funded address** — it bails with `AccountAlreadyInUse` if the target already holds lamports. That's why Anchor's `init` has a fallback: if someone already sent SOL to the PDA, it tops the rent up and calls `allocate` + `assign` instead (still seed-signed). Without that, anyone could grief your `initialize` by sending dust to your future `vault_state` first.
+- **The rent floor is enforced at transaction commit, not by the transfer handler.** As of 2026-10-20 on devnet: 650,240 lamports for an empty account, 701,040 for a 10-byte one (matches `vault_state` exactly). Practical rules for this vault: a first deposit below 650,240 lamports fails; a partial withdraw that leaves the vault between 1 and 650,239 lamports fails; `close` draining it to exactly 0 deletes the row entirely.
+
 ### Why `UncheckedAccount` for `application_account`
 
 The account *doesn't exist yet* when validation runs — the CPI creates it. Its address is still fully verified (`seeds` + `seeds::program = application_program.key()` derives under `TRBZyQHB…`), so only its data is unchecked. The `/// CHECK:` comment documents this.
@@ -154,6 +186,14 @@ withdraw .5  → vault balance = 0.5 SOL; registry creates           TX 3mHuxxQe
                2D44dQv5… with github "rafael-ariascalles"
 close        → vault → user (0.5 SOL); vault_state deleted;        TX 7GWUgfGU…
                rent refunded. Verified after close: both null.
+(again, wallet A)
+initialize   → vault_state row back at HSdoaEQ8… — SAME address     TX 2UUDJX9r…
+               (seeds are deterministic: the deleted row's address
+               is exactly the one that re-derives)
+deposit 0.1  → vault 58fRZWud… back with 0.1 SOL (left open)       TX 4w7BvUCs…
+(wallet B, initialize only — a second user: a second vault)
+initialize   → vault_state 7eSK9k7b…; vault address 9x5T4eF4…      TX 4UdJZktJ…
+               still AccountNotFound (never received lamports)
 ```
 
 After `close`, this program's account rows are gone — the ledger is as if the vault never happened — **except** the `application_account` at the registry, which persists because the registry owns it and its lifecycle belongs to the course, not to this vault.
